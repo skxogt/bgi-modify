@@ -1,4 +1,4 @@
-/* BGI Solution | production baseline r1 | no remote dependencies */
+/* BGI Solution | version 2 | no remote dependencies */
 (() => {
   'use strict';
   const root = document.documentElement;
@@ -6,7 +6,7 @@
   const menuButton = document.getElementById('menuToggle');
   let menuReady = false;
   if (menu && menuButton) {
-    const narrow = window.matchMedia('(max-width: 1180px)');
+    const narrow = window.matchMedia('(max-width: 960px)');
     const servicesDetails = menu.querySelector('details.nav-services');
     const closeMenu = (returnFocus = false) => {
       menu.classList.remove('is-open');
@@ -163,7 +163,7 @@
   const workPanel = document.getElementById('workDiscovery');
   const workSearch = document.getElementById('workSearch');
   if (workPanel && workSearch) {
-    const demos = Array.from(document.querySelectorAll('.demo-list-item[data-niche]'));
+    const demos = Array.from(document.querySelectorAll('.demo-list-item[data-niche], .demo-card[data-niche]'));
     const status = document.getElementById('workCount');
     const filterWork = () => {
       const query = normalized(workSearch.value);
@@ -173,10 +173,97 @@
         li.hidden = !!query && !text.includes(query);
         if (!li.hidden) count++;
       });
-      if (status) status.textContent = query ? (count ? `${count} matching website demonstration${count===1?'':'s'}` : 'No matching demonstration. Try another industry.') : 'Browse all 20 website demonstrations';
+      if (status) status.textContent = query ? (count ? `${count} matching design${count===1?'':'s'}` : 'No matching design yet. Try another industry, or contact us.') : 'Showing all 20 website designs';
     };
     workPanel.hidden = false;
     workSearch.addEventListener('input',filterWork);
     filterWork();
   }
+  // Sticky header gets a hairline + shadow once the page scrolls.
+  const header = document.querySelector('.site-header');
+  if (header) {
+    const onScroll = () => header.classList.toggle('is-scrolled', window.scrollY > 8);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  }
+
+  // Gentle reveal on scroll. Content is fully visible without JS or with reduced motion.
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const revealEls = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window && revealEls.length && !reduceMotion.matches) {
+    root.classList.add('reveal-ready');
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => { if (entry.isIntersecting) { entry.target.classList.add('is-visible'); io.unobserve(entry.target); } });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+    revealEls.forEach((el) => {
+      // Anything already on screen shows immediately (no flash on load).
+      const r = el.getBoundingClientRect();
+      if (r.top < window.innerHeight && r.bottom > 0) el.classList.add('is-visible');
+      else io.observe(el);
+    });
+  }
+
+  // Carousel pause/play (WCAG 2.2.2: moving content can be paused).
+  document.querySelectorAll('[data-marquee-toggle]').forEach((btn) => {
+    const target = document.getElementById(btn.getAttribute('aria-controls'));
+    if (!target) return;
+    const label = btn.querySelector('span');
+    const svg = btn.querySelector('svg');
+    const pausePath = '<path d="M9 5v14M15 5v14"/>';
+    const playPath = '<path d="M7 5l12 7-12 7Z"/>';
+    btn.addEventListener('click', () => {
+      const paused = target.classList.toggle('is-paused');
+      btn.setAttribute('aria-pressed', String(paused));
+      if (label) label.textContent = paused ? 'Play carousel' : 'Pause carousel';
+      if (svg) svg.innerHTML = paused ? playPath : pausePath;
+    });
+  });
+
+  // Contact forms. If data-endpoint is set (e.g. a Formspree URL), the message is posted there.
+  // Otherwise the visitor's email app opens with the message ready to send to data-email.
+  document.querySelectorAll('form[data-contact-form]').forEach((form) => {
+    const status = form.querySelector('.form-status');
+    const submit = form.querySelector('[type="submit"]');
+    const say = (msg, kind) => { if (!status) return; status.textContent = msg; status.className = 'form-status' + (kind ? ' is-' + kind : ''); };
+    const emailOk = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      if ((data.get('_gotcha') || '').toString().trim()) return; // bot trap
+      const name = (data.get('name') || '').toString().trim();
+      const email = (data.get('email') || '').toString().trim();
+      const company = (data.get('company') || '').toString().trim();
+      const message = (data.get('message') || '').toString().trim();
+      const problems = [];
+      [['name', !name], ['email', !emailOk(email)], ['message', !message]].forEach(([field, bad]) => {
+        const el = form.elements[field];
+        if (el) el.setAttribute('aria-invalid', bad ? 'true' : 'false');
+        if (bad) problems.push(el);
+      });
+      if (problems.length) {
+        say('Please add your name, a valid email address and a short message.', 'error');
+        problems[0].focus();
+        return;
+      }
+      const endpoint = form.dataset.endpoint;
+      const to = form.dataset.email || 'hello@bgisolution.com';
+      if (endpoint) {
+        submit.disabled = true;
+        say('Sending…');
+        try {
+          const res = await fetch(endpoint, { method: 'POST', body: data, headers: { Accept: 'application/json' } });
+          if (!res.ok) throw new Error(String(res.status));
+          form.reset();
+          say('Thank you! Your message has been sent. We will reply by email soon.', 'ok');
+        } catch (_) {
+          say('Sorry, your message could not be sent. Please email ' + to + ' instead.', 'error');
+        } finally { submit.disabled = false; }
+        return;
+      }
+      const subject = 'Website inquiry from ' + name + (company ? ' (' + company + ')' : '');
+      const body = message + '\n\n' + name + '\n' + email + (company ? '\n' + company : '');
+      window.location.href = 'mailto:' + to + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+      say('Your email app should open with your message ready to send. If nothing happens, email us at ' + to + '.', 'ok');
+    });
+  });
 })();
